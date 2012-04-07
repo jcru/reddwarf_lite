@@ -23,6 +23,7 @@ import netaddr
 from reddwarf import db
 
 from reddwarf.common import config
+from reddwarf.common import pagination
 from reddwarf.guestagent import api as guest_api
 from reddwarf.common import exception as rd_exceptions
 from reddwarf.common import utils
@@ -269,9 +270,12 @@ class Instances(object):
         client = create_nova_client(context)
         servers = client.servers.list()
         db_infos = DBInstance.find_all()
+        data_view = DBInstance.find_by_pagination('instances', db_infos, "foo", limit=context.limit, marker=context.marker)
         ret = []
         find_server = create_server_list_matcher(servers)
-        for db in db_infos:
+        print "im a acolleciton!"
+        print data_view.collection
+        for db in data_view.collection:
             status = InstanceServiceStatus.find_by(instance_id=db.id)
             try:
                 # TODO(hub-cap): Figure out if this is actually correct.
@@ -336,6 +340,16 @@ class DatabaseModelBase(ModelBase):
     def _process_conditions(cls, raw_conditions):
         """Override in inheritors to format/modify any conditions."""
         return raw_conditions
+
+    @classmethod
+    def find_by_pagination(cls, collection_type, collection_query, 
+                            paginated_url, **kwargs):
+        elements, next_marker = collection_query.paginated_collection(**kwargs)
+
+        return pagination.PaginatedDataView(collection_type,
+                                            elements,
+                                            paginated_url,
+                                            next_marker)
 
 
 class DBInstance(DatabaseModelBase):

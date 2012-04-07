@@ -265,11 +265,18 @@ class ContextMiddleware(openstack_wsgi.Middleware):
     def __init__(self, application):
         super(ContextMiddleware, self).__init__(application)
 
+    def _extract_limits(self, params):
+        return dict([(key, params[key]) for key in params.keys()
+                    if key in ["limit", "marker"]])
+
     def process_request(self, request):
         tenant_id = request.headers.get('X-Tenant-Id', None)
         auth_tok = request.headers["X-Auth-Token"]
+        limits = self._extract_limits(request.params)
         context = rd_context.ReddwarfContext(auth_tok=auth_tok,
-                                             tenant=tenant_id)
+                                             tenant=tenant_id,
+                                             limit=limits.get('limit'),
+                                             marker=limits.get('marker'))
         request.environ[CONTEXT_KEY] = context
 
     @classmethod
