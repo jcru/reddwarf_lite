@@ -25,7 +25,6 @@ from reddwarf import rpc
 from reddwarf.common import config
 from reddwarf.common import exception
 from reddwarf.common import utils
-# from nova.db import api as dbapi
 
 
 LOG = logging.getLogger(__name__)
@@ -139,7 +138,7 @@ class API(object):
     def restart(self):
         """Restart the MySQL server."""
         LOG.debug(_("Sending the call to restart MySQL on the Guest."))
-        self._call("restart")
+        self._cast("restart")
 
     def start_mysql_with_conf_changes(self, updated_memory_size):
         """Start the MySQL server."""
