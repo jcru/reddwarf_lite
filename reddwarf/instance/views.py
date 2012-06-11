@@ -111,7 +111,10 @@ class InstancesView(object):
         data = []
         # These are model instances
         for instance in self.instances:
-            data.append(self.data_for_instance(instance))
+            instance_data = self.data_for_instance(instance)
+            # Remove the hostname from details
+            instance_data.pop('hostname', None)
+            data.append(instance_data)
         return {'instances': data}
 
     def data_for_instance(self, instance):
