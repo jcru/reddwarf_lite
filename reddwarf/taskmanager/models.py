@@ -15,6 +15,7 @@
 import logging
 
 from eventlet import greenthread
+from datetime import datetime
 
 from novaclient import exceptions as nova_exceptions
 from reddwarf.common import config
@@ -44,6 +45,9 @@ from reddwarf.instance.views import get_ip_address
 
 LOG = logging.getLogger(__name__)
 
+if config.Config.get('use_decepticon', default=False):
+    from reddwarf.decepticon.api import API as Decepticon_API
+
 
 class FreshInstanceTasks(FreshInstance):
 
@@ -62,6 +66,21 @@ class FreshInstanceTasks(FreshInstance):
                                 databases, users)
         finally:
             self.update_db(task_status=inst_models.InstanceTasks.NONE)
+            if config.Config.get('use_decepticon', default=False):
+                decepticon_api = Decepticon_API(self.context)
+                time_now = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                # TODO(joe.cruz) not sure if parameters are being pulled
+                # correctly/efficiently; also not sure about stale data
+                decepticon_api.create_event(event_type='reddwarf.instance.create.end',
+                                            volume_size=volume_size,
+                                            instance_size=flavor_ram,
+                                            tenant_id=self.context.tenant_id,
+                                            instance_id=self.id,
+                                            instance_name=self.name,
+                                            launched_at=time_now,
+                                            created_at=time_now,
+                                            nova_instance_id=server.id,
+                                            nova_volume_id=self.volume_id)
 
     def _create_volume(self, volume_size):
         LOG.info("Entering create_volume")
@@ -83,7 +102,7 @@ class FreshInstanceTasks(FreshInstance):
                         volume_size,
                         display_name="mysql-%s" % self.id,
                         display_description=volume_desc)
-
+        
         # Record the volume ID in case something goes wrong.
         self.update_db(volume_id=volume_ref.id)
 
@@ -177,6 +196,7 @@ class BuiltInstanceTasks(BuiltInstance):
     """
 
     def get_volume_mountpoint(self):
+        # TODO(joe.cruz) possible bug with volume_id below; should it be self.volume_id?
         volume = create_nova_volume_client(self.context).volumes.get(volume_id)
         mountpoint = volume.attachments[0]['device']
         if mountpoint[0] is not "/":
@@ -186,11 +206,31 @@ class BuiltInstanceTasks(BuiltInstance):
 
     def delete_instance(self):
         try:
+            server_id = self.server.id
             self.server.delete()
         except Exception as ex:
             LOG.error("Error during delete compute server %s "
                       % self.server.id)
             LOG.error(ex)
+        finally:
+            # TODO (joe.cruz) not sure if we wish to end event here or after
+            # dns support.
+            if config.Config.get('use_decepticon', default=False):
+                decepticon_api = Decepticon_API(self.context)
+                time_now = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                # TODO(joe.cruz) not sure if parameters are being pulled
+                # correctly/efficiently; also not sure about stale data
+                decepticon_api.delete_event(event_type='reddwarf.instance.delete.end',
+                                            volume_size=self.volume_size,
+                                            instance_size=self.flavor_id,
+                                            tenant_id=self.context.tenant_id,
+                                            instance_id=self.id,
+                                            instance_name=self.name,
+                                            launched_at=time_now,
+                                            created_at=time_now,
+                                            nova_instance_id=server_id,
+                                            nova_volume_id=self.volume_id,
+                                            deleted_at=time_now)
 
         try:
             dns_support = config.Config.get("reddwarf_dns_support", 'False')
@@ -227,6 +267,22 @@ class BuiltInstanceTasks(BuiltInstance):
                       % self.volume_id)
         finally:
             self.update_db(task_status=inst_models.InstanceTasks.NONE)
+            if config.Config.get('use_decepticon', default=False):
+                decepticon_api = Decepticon_API(self.context)
+                time_now = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                # TODO(joe.cruz) not sure if parameters are being pulled
+                # correctly/efficiently; also not sure about stale data
+                decepticon_api.modify_event(event_type='reddwarf.instance.modify.end',
+                                            volume_size=new_size,
+                                            instance_size=self.flavor_id,
+                                            tenant_id=self.context.tenant_id,
+                                            instance_id=self.id,
+                                            instance_name=self.name,
+                                            launched_at=time_now,
+                                            created_at=time_now,
+                                            nova_instance_id=self.server.id,
+                                            nova_volume_id=self.volume_id,
+                                            modify_at=time_now)
 
     def resize_flavor(self, new_flavor_id, old_memory_size,
                       new_memory_size):
@@ -291,6 +347,23 @@ class BuiltInstanceTasks(BuiltInstance):
                 # instance.
                 LOG.debug("Instance %s starting mysql..." % self.db_info.id)
                 self.guest.start_mysql_with_conf_changes(new_memory_size)
+                if config.Config.get('use_decepticon', default=False):
+                    decepticon_api = Decepticon_API(self.context)
+                    time_now = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    # TODO(joe.cruz) not sure if parameters are being pulled
+                    # correctly/efficiently; also not sure about stale data
+                    decepticon_api.modify_event(event_type='reddwarf.instance.modify.end',
+                                            volume_size=self.volume_size,
+                                            instance_size=new_memory_size,
+                                            tenant_id=self.context.tenant_id,
+                                            instance_id=self.id,
+                                            instance_name=self.name,
+                                            launched_at=time_now,
+                                            created_at=time_now,
+                                            nova_instance_id=self.server.id,
+                                            nova_volume_id=self.volume_id,
+                                            modify_at=time_now)
+
         finally:
             self.update_db(task_status=inst_models.InstanceTasks.NONE)
 
